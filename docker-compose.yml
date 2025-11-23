@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: psychologist_bot
+      POSTGRES_USER: obrol
+      POSTGRES_PASSWORD: 12345
+    ports:
+      - "5555:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/dat
+
+volumes:
+  postgres_data:
