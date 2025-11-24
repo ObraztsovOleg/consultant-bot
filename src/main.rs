@@ -14,7 +14,7 @@ use crate::database::Database;
 use crate::models::payment_config::PaymentConfig;
 use crate::handlers::{
     command_handler, message_handler, callback_handler, 
-    pre_checkout_handler, shipping_query_handler, successful_payment_handler
+    pre_checkout_handler, successful_payment_handler
 };
 
 #[derive(BotCommands, Clone)]
@@ -24,7 +24,7 @@ enum Command {
     Start,
     #[command(description = "показать помощь")]
     Help,
-    #[command(description = "выбрать психолога")]
+    #[command(description = "выбрать консультанта")]
     Persona,
     #[command(description = "мои консультации")]
     MySessions,
@@ -73,23 +73,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let bot = Bot::from_env();
 
-    // Обработчик обновлений
     let handler = dptree::entry()
         .branch(
             Update::filter_message()
                 .filter_command::<Command>()
                 .endpoint(command_handler)
         )
-        .branch(Update::filter_message().endpoint(message_handler))
-        .branch(Update::filter_callback_query().endpoint(callback_handler))
-        .branch(Update::filter_pre_checkout_query().endpoint(pre_checkout_handler))
-        .branch(Update::filter_shipping_query().endpoint(shipping_query_handler))
         .branch(
             Update::filter_message()
-                .filter(|msg: Message| msg.successful_payment().is_some())
+                .filter(|msg: Message| {
+                    let has_payment = msg.successful_payment().is_some();
+                    if has_payment {
+                        log::info!("🎉 Payment detected in filter!");
+                    }
+                    has_payment
+                })
                 .endpoint(successful_payment_handler)
-        );
+        )
+        .branch(Update::filter_pre_checkout_query().endpoint(pre_checkout_handler))
+        .branch(Update::filter_callback_query().endpoint(callback_handler))
+        .branch(Update::filter_message().endpoint(message_handler));
 
+    log::info!("🚀 Starting dispatcher with correct payment handling...");
+    
     Dispatcher::builder(bot, handler)
         .dependencies(dptree::deps![state, ton_config])
         .enable_ctrlc_handler()

@@ -14,4 +14,5 @@ pub struct UserSession {
     pub messages_exchanged: u32,
     pub history: Vec<ChatMessage>,
     pub is_active: bool,
+    pub scheduled_start: Option<DateTime<Utc>>, // Добавляем поле для запланированного времени
 }

@@ -20,7 +20,7 @@ impl AIAssistant {
                 description: "Интерактивный помощник".to_string(),
                 specialty: "Общение и поддержка в повседневных задачах".to_string(),
                 greeting: "Здравствуйте\\! Я Анна\\. Я помогу вам обсудить вопросы и получить полезные советы\\. Расскажите, что вас интересует?".to_string(),
-                price_per_minute: 2.0,
+                price_per_minute: 0.1, // Будет переопределено из базы
                 prompt: "Ты \\— Анна, виртуальный помощник, ориентированный на поддержку и советы в повседневной жизни\\. \
                           Твоя цель \\— помогать пользователю разбирать задачи, давать рекомендации и задавать уточняющие вопросы, \
                           чтобы пользователь самостоятельно находил решения\\.".to_string(),
@@ -31,7 +31,7 @@ impl AIAssistant {
                 description: "Наставник".to_string(),
                 specialty: "Помощь в саморазвитии и планировании".to_string(),
                 greeting: "Привет\\! Я Максим\\. Я помогу вам планировать задачи, развивать навыки и лучше понимать себя\\. С чего начнем?".to_string(),
-                price_per_minute: 1.8,
+                price_per_minute: 0.09, // Будет переопределено из базы
                 prompt: "Ты \\— Максим, виртуальный наставник для саморазвития\\. \
                           Твоя цель \\— помогать пользователю в постановке целей, планировании и развитии навыков\\. \
                           Ты задаешь наводящие вопросы и даешь советы, не навязывая решений\\.".to_string(),
@@ -42,7 +42,7 @@ impl AIAssistant {
                 description: "консультант".to_string(),
                 specialty: "Поддержка и мотивация".to_string(),
                 greeting: "Добрый день\\! Я София\\. Готова помочь обсудить идеи, задачи или получить мотивацию для новых целей\\.".to_string(),
-                price_per_minute: 1.6,
+                price_per_minute: 0.08, // Будет переопределено из базы
                 prompt: "Ты \\— София, виртуальный консультант для поддержки и мотивации\\. \
                           Твоя цель \\— создавать безопасное пространство для обсуждения идей и целей, помогать структурировать мысли и находить решения самостоятельно\\.".to_string(),
             },
@@ -52,7 +52,7 @@ impl AIAssistant {
                 description: "Коуч".to_string(),
                 specialty: "Целеполагание и продуктивность".to_string(),
                 greeting: "Здравствуйте\\! Я Алексей\\. Я помогу вам определить цели и разработать план действий\\. С чего начнем?".to_string(),
-                price_per_minute: 1.4,
+                price_per_minute: 0.07, // Будет переопределено из базы
                 prompt: "Ты \\— Алексей, виртуальный коуч по постановке целей и повышению продуктивности\\. \
                           Твоя цель \\— помогать пользователю выявлять задачи, строить планы и находить пути достижения целей\\. \
                           Ты даешь советы и задаешь уточняющие вопросы, чтобы пользователь сам находил оптимальные решения\\.".to_string(),
@@ -60,16 +60,23 @@ impl AIAssistant {
         ]
     }
 
+    pub async fn find_by_model_with_price(state: &crate::bot_state::BotState, model: &str) -> Option<Self> {
+        let mut assistant = Self::get_all_assistants()
+            .into_iter()
+            .find(|assistant| assistant.model == model)?;
+
+        // Получаем актуальную цену из базы данных
+        if let Ok(price) = state.get_psychologist_price(model).await {
+            assistant.price_per_minute = price;
+        }
+
+        Some(assistant)
+    }
+
     pub fn find_by_model(model: &str) -> Option<Self> {
         Self::get_all_assistants()
             .into_iter()
             .find(|assistant| assistant.model == model)
-    }
-
-    pub fn calculate_price_btc(&self, duration_minutes: u32, btc_price_usd: f64) -> (f64, f64) {
-        let price_usd = self.price_per_minute * duration_minutes as f64;
-        let price_btc = price_usd / btc_price_usd;
-        (price_btc, price_usd)
     }
 
     pub fn calculate_price(&self, duration_minutes: u32) -> (f64, u32) {

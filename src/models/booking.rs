@@ -14,4 +14,6 @@ pub struct Booking {
     pub is_completed: bool,
     pub created_at: DateTime<Utc>,
     pub payment_invoice_message_id: Option<MessageId>,
+    pub scheduled_start: Option<DateTime<Utc>>,
+    pub expires_at: Option<DateTime<Utc>>, // Добавляем поле для времени истечения
 }

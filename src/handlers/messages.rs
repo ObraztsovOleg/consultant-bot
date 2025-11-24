@@ -7,9 +7,9 @@ use crate::llm;
 use crate::llm::config::ChatMessage;
 use crate::models::{AIAssistant, PaymentConfig};
 use crate::handlers::utils::{
-    escape_markdown_v2, format_float, main_menu_keyboard, make_booking_keyboard,
-    make_ai_keyboard, make_settings_keyboard, get_user_temperature,
-    show_user_sessions, send_ai_message
+    escape_markdown_v2, format_float, get_user_temperature, main_menu_keyboard, 
+    make_ai_keyboard, make_calendar_keyboard, make_settings_keyboard, 
+    send_ai_message, show_user_sessions
 };
 use chrono::Utc;
 
@@ -17,7 +17,7 @@ pub async fn message_handler(
     bot: Bot,
     msg: Message,
     state: BotState,
-    payment_config: PaymentConfig,
+    _payment_config: PaymentConfig,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     if let Some(text) = msg.text() {
         // Пропускаем команды - они уже обработаны в command_handler
@@ -51,7 +51,7 @@ pub async fn message_handler(
                         "⚙️ *Настройки сессии:*\n\n\
                         *Текущий консультант:* {}\n\
                         *Стиль общения:* {}\n\
-                        *Цена:* {} USD/мин\n\
+                        *Цена:* {} TON/мин\n\
                         *Эмпатия/Температура:* {:.1}\n\n\
                         Температура влияет на креативность и разнообразие ответов\\.",
                         escape_markdown_v2(&current_assistant.name),
@@ -80,12 +80,17 @@ pub async fn message_handler(
                 .await?;
             }
             _ => {
-                // ОБРАБОТКА СООБЩЕНИЙ К AI-ПЕРСОНЕ
-                let mut user_state = state.get_user_state(msg.chat.id).await;
-                
+                let user_state = state.get_user_state(msg.chat.id).await;
+    
                 // Проверяем активность сессии
                 let can_chat = if let Some(session) = &user_state.current_session {
-                    session.is_active && Utc::now() < session.paid_until
+                    // Проверяем, активна ли сессия и не является ли она запланированной на будущее
+                    let is_scheduled_future = session.scheduled_start.map_or(false, |start| Utc::now() < start);
+                    
+                    session.is_active && 
+                    !is_scheduled_future && // ВАЖНО: блокируем если сессия запланирована на будущее
+                    Utc::now() >= session.session_start && 
+                    Utc::now() < session.paid_until
                 } else {
                     false
                 };
@@ -93,20 +98,44 @@ pub async fn message_handler(
                 let current_assistant = AIAssistant::find_by_model(&user_state.current_model)
                     .unwrap_or_else(|| AIAssistant::get_all_assistants()[0].clone());
 
-                if !can_chat {        
+                if !can_chat {
+                    // Проверяем, есть ли запланированная сессия
+                    if let Some(session) = &user_state.current_session {
+                        if let Some(scheduled_start) = session.scheduled_start {
+                            if Utc::now() < scheduled_start {
+                                // Сессия запланирована, но еще не началась
+                                bot.send_message(
+                                    msg.chat.id,
+                                    format!(
+                                        "⏰ *Сессия запланирована*\n\n\
+                                        *Консультант:* {}\n\
+                                        *Начало:* {}\n\n\
+                                        Вы сможете общаться с консультантом после начала сессии\\.",
+                                        escape_markdown_v2(&current_assistant.name),
+                                        scheduled_start.format("%d\\.%m\\.%Y в %H:%M")
+                                    ),
+                                )
+                                .parse_mode(ParseMode::MarkdownV2)
+                                .await?;
+                                return Ok(());
+                            }
+                        }
+                    }
+                    
+                    // Предлагаем выбрать время для сессии
                     bot.send_message(
                         msg.chat.id,
                         format!(
-                            "💬 *Чтобы начать сессию, необходимо оплатить время*\n\n\
+                            "💬 *Чтобы начать сессию, необходимо выбрать время*\n\n\
                             *Консультант:* {}\n\
-                            *Цена:* {} USD/мин\n\n\
-                            Выберите продолжительность сессии:",
+                            *Цена:* {} TON/30 мин\n\n\
+                            Выберите дату и время для сессии:",
                             escape_markdown_v2(&current_assistant.name),
-                            format_float(current_assistant.price_per_minute)
+                            format_float(current_assistant.price_per_minute * 30.0)
                         ),
                     )
                     .parse_mode(ParseMode::MarkdownV2)
-                    .reply_markup(make_booking_keyboard(&current_assistant))
+                    .reply_markup(make_calendar_keyboard(None))
                     .await?;
                     return Ok(());
                 }
@@ -115,6 +144,7 @@ pub async fn message_handler(
                 let _ = bot.send_chat_action(msg.chat.id, teloxide::types::ChatAction::Typing).await;
 
                 // ОБНОВЛЯЕМ СЕССИЮ В user_state
+                let mut user_state = state.get_user_state(msg.chat.id).await;
                 if let Some(session) = &mut user_state.current_session {
                     if session.history.is_empty() {
                         session.history.push(ChatMessage {
@@ -198,6 +228,34 @@ pub async fn message_handler(
             }
         }
     } else {
+        let user_state = state.get_user_state(msg.chat.id).await;
+        
+        // Проверяем, есть ли запланированная сессия
+        if let Some(session) = &user_state.current_session {
+            if let Some(scheduled_start) = session.scheduled_start {
+                if Utc::now() < scheduled_start {
+                    let assistant = AIAssistant::find_by_model(&session.psychologist_model)
+                        .unwrap_or_else(|| AIAssistant::get_all_assistants()[0].clone());
+                    
+                    bot.send_message(
+                        msg.chat.id,
+                        format!(
+                            "⏰ *Сессия запланирована и успешно оплачена\\!*\n\n\
+                            *Консультант:* {}\n\
+                            *Начало:* {}\n\
+                            *Продолжительность:* 30 мин\n\n\
+                            Вы сможете общаться с консультантом после начала сессии\\.",
+                            escape_markdown_v2(&assistant.name),
+                            scheduled_start.format("%d\\.%m\\.%Y в %H:%M")
+                        ),
+                    )
+                    .parse_mode(ParseMode::MarkdownV2)
+                    .await?;
+                    return Ok(());
+                }
+            }
+        }
+        
         bot.send_message(
             msg.chat.id,
             "👋 Напишите свой вопрос, консультант подключится и начнет с вами диалог.",
