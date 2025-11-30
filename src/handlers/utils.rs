@@ -211,10 +211,3 @@ pub async fn send_ai_message(
         .await?;
     Ok(())
 }
-
-pub fn has_active_session(user_state: &UserState) -> bool {
-    if let Some(session) = &user_state.current_session {
-        return session.is_active && Utc::now() < session.paid_until;
-    }
-    false
-}
