@@ -1,6 +1,9 @@
 use serde::{Serialize, Deserialize};
+use sqlx::FromRow;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+use crate::bot_state::BotState;
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct AIAssistant {
     pub name: String,
     pub prompt: String,
@@ -12,76 +15,103 @@ pub struct AIAssistant {
 }
 
 impl AIAssistant {
-    pub fn get_all_assistants() -> Vec<Self> {
-        vec![
-            AIAssistant {
-                name: "Анна".to_string(),
-                model: "GigaChat-2-Max".to_string(),
-                description: "Интерактивный помощник".to_string(),
-                specialty: "Общение и поддержка в повседневных задачах".to_string(),
-                greeting: "Здравствуйте\\! Я Анна\\. Я помогу вам обсудить вопросы и получить полезные советы\\. Расскажите, что вас интересует?".to_string(),
-                price_per_minute: 0.1, // Будет переопределено из базы
-                prompt: "Ты \\— Анна, виртуальный помощник, ориентированный на поддержку и советы в повседневной жизни\\. \
-                          Твоя цель \\— помогать пользователю разбирать задачи, давать рекомендации и задавать уточняющие вопросы, \
-                          чтобы пользователь самостоятельно находил решения\\.".to_string(),
-            },
-            AIAssistant {
-                name: "Максим".to_string(),
-                model: "GigaChat-2-Pro".to_string(),
-                description: "Наставник".to_string(),
-                specialty: "Помощь в саморазвитии и планировании".to_string(),
-                greeting: "Привет\\! Я Максим\\. Я помогу вам планировать задачи, развивать навыки и лучше понимать себя\\. С чего начнем?".to_string(),
-                price_per_minute: 0.09, // Будет переопределено из базы
-                prompt: "Ты \\— Максим, виртуальный наставник для саморазвития\\. \
-                          Твоя цель \\— помогать пользователю в постановке целей, планировании и развитии навыков\\. \
-                          Ты задаешь наводящие вопросы и даешь советы, не навязывая решений\\.".to_string(),
-            },
-            AIAssistant {
-                name: "София".to_string(),
-                model: "deepseek-chat".to_string(),
-                description: "консультант".to_string(),
-                specialty: "Поддержка и мотивация".to_string(),
-                greeting: "Добрый день\\! Я София\\. Готова помочь обсудить идеи, задачи или получить мотивацию для новых целей\\.".to_string(),
-                price_per_minute: 0.08, // Будет переопределено из базы
-                prompt: "Ты \\— София, виртуальный консультант для поддержки и мотивации\\. \
-                          Твоя цель \\— создавать безопасное пространство для обсуждения идей и целей, помогать структурировать мысли и находить решения самостоятельно\\.".to_string(),
-            },
-            AIAssistant {
-                name: "Алексей".to_string(),
-                model: "GigaChat-2".to_string(),
-                description: "Коуч".to_string(),
-                specialty: "Целеполагание и продуктивность".to_string(),
-                greeting: "Здравствуйте\\! Я Алексей\\. Я помогу вам определить цели и разработать план действий\\. С чего начнем?".to_string(),
-                price_per_minute: 0.07, // Будет переопределено из базы
-                prompt: "Ты \\— Алексей, виртуальный коуч по постановке целей и повышению продуктивности\\. \
-                          Твоя цель \\— помогать пользователю выявлять задачи, строить планы и находить пути достижения целей\\. \
-                          Ты даешь советы и задаешь уточняющие вопросы, чтобы пользователь сам находил оптимальные решения\\.".to_string(),
-            },
-        ]
-    }
-
-    pub async fn find_by_model_with_price(state: &crate::bot_state::BotState, model: &str) -> Option<Self> {
-        let mut assistant = Self::get_all_assistants()
-            .into_iter()
-            .find(|assistant| assistant.model == model)?;
-
-        // Получаем актуальную цену из базы данных
-        if let Ok(price) = state.get_psychologist_price(model).await {
-            assistant.price_per_minute = price;
+    pub async fn get_all_assistants(state: &BotState) -> Vec<Self> {
+        match sqlx::query_as::<_, AIAssistant>(
+            "SELECT name, prompt, model, description, specialty, greeting, price_per_minute 
+             FROM consultants 
+             WHERE is_active = true 
+             ORDER BY price_per_minute DESC"
+        )
+        .fetch_all(&state.db.pool)
+        .await {
+            Ok(assistants) => assistants,
+            Err(e) => {
+                log::error!("Error fetching assistants from database: {}", e);
+                // Fallback to default assistants if DB fails
+                vec![
+                    AIAssistant {
+                        name: "Анна".to_string(),
+                        model: "GigaChat-2-Max".to_string(),
+                        description: "Интерактивный помощник".to_string(),
+                        specialty: "Общение и поддержка в повседневных задачах".to_string(),
+                        greeting: "Здравствуйте! Я Анна. Я помогу вам обсудить вопросы и получить полезные советы. Расскажите, что вас интересует?".to_string(),
+                        price_per_minute: 0.1,
+                        prompt: "Ты — Анна, виртуальный помощник, ориентированный на поддержку и советы в повседневной жизни. Твоя цель — помогать пользователю разбирать задачи, давать рекомендации и задавать уточняющие вопросы, чтобы пользователь самостоятельно находил решения.".to_string(),
+                    }
+                ]
+            }
         }
-
-        Some(assistant)
     }
 
-    pub fn find_by_model(model: &str) -> Option<Self> {
-        Self::get_all_assistants()
-            .into_iter()
-            .find(|assistant| assistant.model == model)
+    pub async fn find_by_model_with_price(state: &BotState, model: &str) -> Option<Self> {
+        match sqlx::query_as::<_, AIAssistant>(
+            "SELECT name, prompt, model, description, specialty, greeting, price_per_minute 
+             FROM consultants 
+             WHERE model = $1 AND is_active = true"
+        )
+        .bind(model)
+        .fetch_optional(&state.db.pool)
+        .await {
+            Ok(Some(assistant)) => Some(assistant),
+            Ok(None) => {
+                log::warn!("Assistant with model {} not found in database", model);
+                None
+            }
+            Err(e) => {
+                log::error!("Error fetching assistant from database: {}", e);
+                None
+            }
+        }
+    }
+
+    pub async fn find_by_model(state: &BotState, model: &str) -> Option<Self> {
+        Self::find_by_model_with_price(state, model).await
     }
 
     pub fn calculate_price(&self, duration_minutes: u32) -> (f64, u32) {
         let price_ton = self.price_per_minute * duration_minutes as f64;
         let price_nanoton = (price_ton * 1_000_000_000.0) as u32;
         (price_ton, price_nanoton)
+    }
+
+    // Новый метод для административных задач
+    pub async fn update_assistant(state: &BotState, assistant: &AIAssistant) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        sqlx::query(
+            r#"
+            INSERT INTO consultants (model, name, description, specialty, greeting, prompt, price_per_minute)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (model) DO UPDATE SET
+                name = EXCLUDED.name,
+                description = EXCLUDED.description,
+                specialty = EXCLUDED.specialty,
+                greeting = EXCLUDED.greeting,
+                prompt = EXCLUDED.prompt,
+                price_per_minute = EXCLUDED.price_per_minute,
+                updated_at = NOW()
+            "#
+        )
+        .bind(&assistant.model)
+        .bind(&assistant.name)
+        .bind(&assistant.description)
+        .bind(&assistant.specialty)
+        .bind(&assistant.greeting)
+        .bind(&assistant.prompt)
+        .bind(assistant.price_per_minute)
+        .execute(&state.db.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    // Метод для деактивации консультанта
+    pub async fn deactivate_assistant(state: &BotState, model: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        sqlx::query(
+            "UPDATE consultants SET is_active = false, updated_at = NOW() WHERE model = $1"
+        )
+        .bind(model)
+        .execute(&state.db.pool)
+        .await?;
+
+        Ok(())
     }
 }

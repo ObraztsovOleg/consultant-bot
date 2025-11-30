@@ -28,7 +28,7 @@ enum Command {
     Persona,
     #[command(description = "мои консультации")]
     MySessions,
-    #[command(description = "настройки")]
+    #[command(description = "список консультантов")] // Обновлено описание
     Settings,
 }
 
@@ -47,10 +47,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     db.init().await?;
     log::info!("✅ Database initialized");
 
-    // Настройки оплаты TON
-    let ton_config = PaymentConfig {
-        provider_token: env::var("TON_PROVIDER_TOKEN")
-            .expect("TON_PROVIDER_TOKEN must be set"),
+    // Настройки оплаты Telegram Stars
+    let payment_config = PaymentConfig {
+        provider_token: None,
+        currency: "XTR".to_string(), // Валюта для Telegram Stars
     };
 
     let state = BotState::new(db);
@@ -97,7 +97,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     log::info!("🚀 Starting dispatcher with correct payment handling...");
     
     Dispatcher::builder(bot, handler)
-        .dependencies(dptree::deps![state, ton_config])
+        .dependencies(dptree::deps![state, payment_config])
         .enable_ctrlc_handler()
         .build()
         .dispatch()

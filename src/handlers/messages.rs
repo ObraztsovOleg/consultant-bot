@@ -7,8 +7,8 @@ use crate::llm;
 use crate::llm::config::ChatMessage;
 use crate::models::{AIAssistant, PaymentConfig};
 use crate::handlers::utils::{
-    escape_markdown_v2, format_float, get_user_temperature, main_menu_keyboard, 
-    make_ai_keyboard, make_calendar_keyboard, make_settings_keyboard, 
+    escape_markdown_v2, main_menu_keyboard, 
+    make_ai_keyboard, make_consultants_info_keyboard, 
     send_ai_message, show_user_sessions
 };
 use chrono::Utc;
@@ -27,7 +27,7 @@ pub async fn message_handler(
 
         match text {
             "👥 Выбрать консультанта" => {
-                let keyboard = make_ai_keyboard();
+                let keyboard = make_ai_keyboard(&state).await;
                 bot.send_message(
                     msg.chat.id,
                     "👥 *Выберите консультанта:*\n\nКаждый консультант имеет свой стиль общения и индивидуальную цену\\.",
@@ -39,29 +39,17 @@ pub async fn message_handler(
             "💰 Мои сессии" => {
                 show_user_sessions(&bot, msg.chat.id, &state).await?;
             }
-            "⚙️ Настройки" => {
-                let user_state = state.get_user_state(msg.chat.id).await;
-                let current_assistant = AIAssistant::find_by_model(&user_state.current_model)
-                    .unwrap_or_else(|| AIAssistant::get_all_assistants()[0].clone());
-                let temp = get_user_temperature(msg.chat.id, &state).await;
-
+            "ℹ️ Список консультантов" => {
+                let keyboard = make_consultants_info_keyboard(&state).await;
                 bot.send_message(
                     msg.chat.id,
-                    format!(
-                        "⚙️ *Настройки сессии:*\n\n\
-                        *Текущий консультант:* {}\n\
-                        *Стиль общения:* {}\n\
-                        *Цена:* {} TON/мин\n\
-                        *Эмпатия/Температура:* {:.1}\n\n\
-                        Температура влияет на креативность и разнообразие ответов\\.",
-                        escape_markdown_v2(&current_assistant.name),
-                        escape_markdown_v2(&current_assistant.specialty),
-                        format_float(current_assistant.price_per_minute),
-                        format_float(temp as f64)
-                    ),
+                    "👥 *Список консультантов*\n\n\
+Выберите консультанта чтобы увидеть подробную информацию:\n\n\
+Каждый консультант — это стиль общения ИИ с разным характером и ценой\\.\n\
+Это не психологи и не специалисты\\.",
                 )
                 .parse_mode(ParseMode::MarkdownV2)
-                .reply_markup(make_settings_keyboard())
+                .reply_markup(keyboard)
                 .await?;
             }
             "ℹ️ О боте" => {
@@ -71,7 +59,7 @@ pub async fn message_handler(
                     Это AI\\-бот для общения и эмоциональной поддержки\n\n\
                     *Возможности:*\n\
                     • Выбор из нескольких консультантов\n\
-                    • Оплата сессий\n\
+                    • Оплата сессий через Telegram Stars\n\
                     • Контроль времени сессии\n\
                     • Полная конфиденциальность\n\n\
                     Используйте меню для навигации\\.",
@@ -81,61 +69,44 @@ pub async fn message_handler(
             }
             _ => {
                 let user_state = state.get_user_state(msg.chat.id).await;
-    
+                let assistants = AIAssistant::get_all_assistants(&state).await;
+                let current_assistant = AIAssistant::find_by_model_with_price(&state, &user_state.current_model).await
+                    .unwrap_or_else(|| {
+                        // Fallback если не найден в БД
+                        assistants.first()
+                            .cloned()
+                            .unwrap_or_else(|| AIAssistant {
+                                name: "Анна".to_string(),
+                                model: "GigaChat-2-Max".to_string(),
+                                description: "Интерактивный помощник".to_string(),
+                                specialty: "Общение и поддержка".to_string(),
+                                greeting: "Здравствуйте!".to_string(),
+                                prompt: "Ты помощник.".to_string(),
+                                price_per_minute: 0.1,
+                            })
+                    });
                 // Проверяем активность сессии
                 let can_chat = if let Some(session) = &user_state.current_session {
-                    // Проверяем, активна ли сессия и не является ли она запланированной на будущее
-                    let is_scheduled_future = session.scheduled_start.map_or(false, |start| Utc::now() < start);
-                    
-                    session.is_active && 
-                    !is_scheduled_future && // ВАЖНО: блокируем если сессия запланирована на будущее
-                    Utc::now() >= session.session_start && 
-                    Utc::now() < session.paid_until
+                    session.is_active && Utc::now() < session.paid_until
                 } else {
                     false
                 };
 
-                let current_assistant = AIAssistant::find_by_model(&user_state.current_model)
-                    .unwrap_or_else(|| AIAssistant::get_all_assistants()[0].clone());
-
                 if !can_chat {
-                    // Проверяем, есть ли запланированная сессия
-                    if let Some(session) = &user_state.current_session {
-                        if let Some(scheduled_start) = session.scheduled_start {
-                            if Utc::now() < scheduled_start {
-                                // Сессия запланирована, но еще не началась
-                                bot.send_message(
-                                    msg.chat.id,
-                                    format!(
-                                        "⏰ *Сессия запланирована*\n\n\
-                                        *Консультант:* {}\n\
-                                        *Начало:* {}\n\n\
-                                        Вы сможете общаться с консультантом после начала сессии\\.",
-                                        escape_markdown_v2(&current_assistant.name),
-                                        scheduled_start.format("%d\\.%m\\.%Y в %H:%M")
-                                    ),
-                                )
-                                .parse_mode(ParseMode::MarkdownV2)
-                                .await?;
-                                return Ok(());
-                            }
-                        }
-                    }
-                    
-                    // Предлагаем выбрать время для сессии
+                    // Предлагаем выбрать консультанта для начала сессии
                     bot.send_message(
                         msg.chat.id,
                         format!(
-                            "💬 *Чтобы начать сессию, необходимо выбрать время*\n\n\
-                            *Консультант:* {}\n\
-                            *Цена:* {} TON/30 мин\n\n\
-                            Выберите дату и время для сессии:",
+                            "💬 *Чтобы начать сессию, необходимо выбрать консультанта*\n\n\
+                            *Текущий консультант:* {}\n\
+                            *Цена:* {} Stars/мин\n\n\
+                            Выберите консультанта для начала сессии:",
                             escape_markdown_v2(&current_assistant.name),
-                            format_float(current_assistant.price_per_minute * 30.0)
+                            (current_assistant.price_per_minute * 100.0) as i32
                         ),
                     )
                     .parse_mode(ParseMode::MarkdownV2)
-                    .reply_markup(make_calendar_keyboard(None))
+                    .reply_markup(make_ai_keyboard(&state).await)
                     .await?;
                     return Ok(());
                 }
@@ -228,34 +199,6 @@ pub async fn message_handler(
             }
         }
     } else {
-        let user_state = state.get_user_state(msg.chat.id).await;
-        
-        // Проверяем, есть ли запланированная сессия
-        if let Some(session) = &user_state.current_session {
-            if let Some(scheduled_start) = session.scheduled_start {
-                if Utc::now() < scheduled_start {
-                    let assistant = AIAssistant::find_by_model(&session.psychologist_model)
-                        .unwrap_or_else(|| AIAssistant::get_all_assistants()[0].clone());
-                    
-                    bot.send_message(
-                        msg.chat.id,
-                        format!(
-                            "⏰ *Сессия запланирована и успешно оплачена\\!*\n\n\
-                            *Консультант:* {}\n\
-                            *Начало:* {}\n\
-                            *Продолжительность:* 30 мин\n\n\
-                            Вы сможете общаться с консультантом после начала сессии\\.",
-                            escape_markdown_v2(&assistant.name),
-                            scheduled_start.format("%d\\.%m\\.%Y в %H:%M")
-                        ),
-                    )
-                    .parse_mode(ParseMode::MarkdownV2)
-                    .await?;
-                    return Ok(());
-                }
-            }
-        }
-        
         bot.send_message(
             msg.chat.id,
             "👋 Напишите свой вопрос, консультант подключится и начнет с вами диалог.",

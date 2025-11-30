@@ -258,6 +258,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 
 [[package]]
+name = "consultant-bot"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "dotenvy",
+ "env_logger",
+ "log",
+ "rand",
+ "reqwest",
+ "reqwest-middleware",
+ "reqwest-retry",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "teloxide",
+ "thiserror 1.0.69",
+ "tokio",
+ "toml",
+ "uuid",
+]
+
+[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1645,30 +1669,6 @@ checksum = "d11f2fedc3b7dafdc2851bc52f277377c5473d378859be234bc7ebb593144d01"
 dependencies = [
  "ar_archive_writer",
  "cc",
-]
-
-[[package]]
-name = "psychologist-bot"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "dotenvy",
- "env_logger",
- "log",
- "rand",
- "reqwest",
- "reqwest-middleware",
- "reqwest-retry",
- "secrecy",
- "serde",
- "serde_json",
- "sqlx",
- "teloxide",
- "thiserror 1.0.69",
- "tokio",
- "toml",
- "uuid",
 ]
 
 [[package]]

@@ -9,7 +9,6 @@ use chrono::{DateTime, Utc};
 
 use crate::models::{UserState, Booking, UserSession};
 use crate::database::Database;
-use chrono::Timelike;
 
 type UserCache = Arc<RwLock<HashMap<ChatId, (UserState, SystemTime)>>>;
 
@@ -105,21 +104,13 @@ impl BotState {
     }
 
     pub async fn save_booking(&self, booking: &Booking) -> Result<(), BotStateError> {
-        // Проверяем, нет ли уже оплаченной брони на это время
-        if let Some(scheduled_start) = booking.scheduled_start {
-            let existing_paid = self.is_time_slot_taken(&booking.psychologist_model, scheduled_start).await?;
-            if existing_paid {
-                return Err(BotStateError::DatabaseError("Time slot already taken".to_string()));
-            }
-        }
-
         sqlx::query(
             r#"
             INSERT INTO bookings 
-            (id, chat_id, psychologist_model, duration_minutes, total_price, 
-             ton_invoice_payload, is_paid, is_completed, payment_invoice_message_id, 
-             scheduled_start, expires_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW() + INTERVAL '5 minutes', NOW())
+            (id, chat_id, consultant_model, duration_minutes, total_price, 
+             invoice_payload, is_paid, is_completed, payment_invoice_message_id, 
+             expires_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW() + INTERVAL '5 minutes', NOW())
             ON CONFLICT (id) 
             DO UPDATE SET 
                 is_paid = EXCLUDED.is_paid,
@@ -134,46 +125,29 @@ impl BotState {
         )
         .bind(&booking.id)
         .bind(booking.user_id.0 as i64)
-        .bind(&booking.psychologist_model)
+        .bind(&booking.consultant_model)
         .bind(booking.duration_minutes as i32)
         .bind(booking.total_price)
-        .bind(&booking.ton_invoice_payload)
+        .bind(&booking.invoice_payload)
         .bind(booking.is_paid)
         .bind(booking.is_completed)
         .bind(booking.payment_invoice_message_id.map(|id| id.0 as i64))
-        .bind(booking.scheduled_start)
         .execute(&self.db.pool)
         .await?;
-
+    
         Ok(())
     }
 
-    pub async fn is_time_slot_taken(&self, psychologist_model: &str, scheduled_start: DateTime<Utc>) -> Result<bool, BotStateError> {
-        let row = sqlx::query(
-            "SELECT COUNT(*) as count 
-             FROM bookings 
-             WHERE psychologist_model = $1 
-             AND scheduled_start = $2 
-             AND is_paid = true
-             AND expires_at IS NULL"
-        )
-        .bind(psychologist_model)
-        .bind(scheduled_start)
-        .fetch_one(&self.db.pool)
-        .await?;
-
-        let count: i64 = row.get("count");
-        Ok(count > 0)
-    }
+    // Убрана функция is_time_slot_taken, так как больше нет бронирования по времени
 
     pub async fn get_user_bookings(&self, chat_id: ChatId) -> Result<Vec<Booking>, BotStateError> {
         // Сначала удаляем просроченные неоплаченные брони
         self.cleanup_expired_bookings().await?;
 
         let rows = sqlx::query(
-            "SELECT id, chat_id, psychologist_model, duration_minutes, total_price, 
-                    ton_invoice_payload, is_paid, is_completed, payment_invoice_message_id, 
-                    scheduled_start, created_at, expires_at
+            "SELECT id, chat_id, consultant_model, duration_minutes, total_price, 
+                    invoice_payload, is_paid, is_completed, payment_invoice_message_id, 
+                    created_at, expires_at
              FROM bookings 
              WHERE chat_id = $1 
              AND (is_paid = true OR expires_at > NOW())
@@ -188,15 +162,14 @@ impl BotState {
             let booking = Booking {
                 id: row.get("id"),
                 user_id: ChatId(row.get::<i64, _>("chat_id") as i64),
-                psychologist_model: row.get("psychologist_model"),
+                consultant_model: row.get("consultant_model"),
                 duration_minutes: row.get::<i32, _>("duration_minutes") as u32,
                 total_price: row.get("total_price"),
-                ton_invoice_payload: row.get("ton_invoice_payload"),
+                invoice_payload: row.get("invoice_payload"),
                 is_paid: row.get("is_paid"),
                 is_completed: row.get("is_completed"),
                 payment_invoice_message_id: row.get::<Option<i64>, _>("payment_invoice_message_id")
                     .map(|id| MessageId(id as i32)),
-                scheduled_start: row.get("scheduled_start"),
                 created_at: row.get("created_at"),
                 expires_at: row.get("expires_at"),
             };
@@ -225,29 +198,28 @@ impl BotState {
 
     pub async fn get_booking_by_payload(&self, invoice_payload: &str) -> Result<Option<Booking>, BotStateError> {
         let row = sqlx::query(
-            "SELECT id, chat_id, psychologist_model, duration_minutes, total_price, 
-                    ton_invoice_payload, is_paid, is_completed, payment_invoice_message_id, 
-                    scheduled_start, created_at, expires_at
+            "SELECT id, chat_id, consultant_model, duration_minutes, total_price, 
+                    invoice_payload, is_paid, is_completed, payment_invoice_message_id, 
+                    created_at, expires_at
              FROM bookings 
-             WHERE ton_invoice_payload = $1"
+             WHERE invoice_payload = $1"
         )
         .bind(invoice_payload)
         .fetch_optional(&self.db.pool)
         .await?;
-
+    
         if let Some(row) = row {
             let booking = Booking {
                 id: row.get("id"),
                 user_id: ChatId(row.get::<i64, _>("chat_id") as i64),
-                psychologist_model: row.get("psychologist_model"),
+                consultant_model: row.get("consultant_model"),
                 duration_minutes: row.get::<i32, _>("duration_minutes") as u32,
                 total_price: row.get("total_price"),
-                ton_invoice_payload: row.get("ton_invoice_payload"),
+                invoice_payload: row.get("invoice_payload"),
                 is_paid: row.get("is_paid"),
                 is_completed: row.get("is_completed"),
                 payment_invoice_message_id: row.get::<Option<i64>, _>("payment_invoice_message_id")
                     .map(|id| MessageId(id as i32)),
-                scheduled_start: row.get("scheduled_start"),
                 created_at: row.get("created_at"),
                 expires_at: row.get("expires_at"),
             };
@@ -259,9 +231,9 @@ impl BotState {
 
     pub async fn get_booking_by_id(&self, booking_id: &str) -> Result<Option<Booking>, BotStateError> {
         let row = sqlx::query(
-            "SELECT id, chat_id, psychologist_model, duration_minutes, total_price, 
-                    ton_invoice_payload, is_paid, is_completed, payment_invoice_message_id, 
-                    scheduled_start, created_at, expires_at
+            "SELECT id, chat_id, consultant_model, duration_minutes, total_price, 
+                    invoice_payload, is_paid, is_completed, payment_invoice_message_id, 
+                    created_at, expires_at
              FROM bookings WHERE id = $1"
         )
         .bind(booking_id)
@@ -272,15 +244,14 @@ impl BotState {
             let booking = Booking {
                 id: row.get("id"),
                 user_id: ChatId(row.get::<i64, _>("chat_id") as i64),
-                psychologist_model: row.get("psychologist_model"),
+                consultant_model: row.get("consultant_model"),
                 duration_minutes: row.get::<i32, _>("duration_minutes") as u32,
                 total_price: row.get("total_price"),
-                ton_invoice_payload: row.get("ton_invoice_payload"),
+                invoice_payload: row.get("invoice_payload"),
                 is_paid: row.get("is_paid"),
                 is_completed: row.get("is_completed"),
                 payment_invoice_message_id: row.get::<Option<i64>, _>("payment_invoice_message_id")
                     .map(|id| MessageId(id as i32)),
-                scheduled_start: row.get("scheduled_start"),
                 created_at: row.get("created_at"),
                 expires_at: row.get("expires_at"),
             };
@@ -304,20 +275,18 @@ impl BotState {
 
     pub async fn find_booking_for_session(&self, session: &UserSession) -> Result<Option<Booking>, BotStateError> {
         let row = sqlx::query(
-            "SELECT id, chat_id, psychologist_model, duration_minutes, total_price, 
-                    ton_invoice_payload, is_paid, is_completed, payment_invoice_message_id, 
-                    scheduled_start, created_at, expires_at
+            "SELECT id, chat_id, consultant_model, duration_minutes, total_price, 
+                    invoice_payload, is_paid, is_completed, payment_invoice_message_id, 
+                    created_at, expires_at
              FROM bookings 
              WHERE chat_id = $1 
-             AND psychologist_model = $2 
-             AND scheduled_start = $3
+             AND consultant_model = $2 
              AND is_paid = true
              ORDER BY created_at DESC
              LIMIT 1"
         )
         .bind(session.chat_id.0 as i64)
-        .bind(&session.psychologist_model)
-        .bind(session.scheduled_start)
+        .bind(&session.consultant_model)
         .fetch_optional(&self.db.pool)
         .await?;
 
@@ -325,15 +294,14 @@ impl BotState {
             let booking = Booking {
                 id: row.get("id"),
                 user_id: ChatId(row.get::<i64, _>("chat_id") as i64),
-                psychologist_model: row.get("psychologist_model"),
+                consultant_model: row.get("consultant_model"),
                 duration_minutes: row.get::<i32, _>("duration_minutes") as u32,
                 total_price: row.get("total_price"),
-                ton_invoice_payload: row.get("ton_invoice_payload"),
+                invoice_payload: row.get("invoice_payload"),
                 is_paid: row.get("is_paid"),
                 is_completed: row.get("is_completed"),
                 payment_invoice_message_id: row.get::<Option<i64>, _>("payment_invoice_message_id")
                     .map(|id| MessageId(id as i32)),
-                scheduled_start: row.get("scheduled_start"),
                 created_at: row.get("created_at"),
                 expires_at: row.get("expires_at"),
             };
@@ -343,63 +311,21 @@ impl BotState {
         }
     }
 
-    pub async fn get_booked_time_slots(&self, date: DateTime<Utc>) -> Result<Vec<DateTime<Utc>>, BotStateError> {
-        let start_of_day = date.with_hour(0).unwrap().with_minute(0).unwrap().with_second(0).unwrap();
-        let end_of_day = date.with_hour(23).unwrap().with_minute(59).unwrap().with_second(59).unwrap();
-    
-        let rows = sqlx::query(
-            "SELECT scheduled_start 
-             FROM bookings 
-             WHERE scheduled_start BETWEEN $1 AND $2 
-             AND (is_paid = true OR expires_at > NOW())
-             ORDER BY scheduled_start"
-        )
-        .bind(start_of_day)
-        .bind(end_of_day)
-        .fetch_all(&self.db.pool)
-        .await?;
-    
-        let mut time_slots = Vec::new();
-        for row in rows {
-            if let Some(scheduled_start) = row.get::<Option<DateTime<Utc>>, _>("scheduled_start") {
-                time_slots.push(scheduled_start);
-            }
-        }
-    
-        Ok(time_slots)
-    }
+    // Убрана функция get_booked_time_slots, так как больше нет бронирования по времени
 
-    pub async fn get_psychologist_price(&self, model: &str) -> Result<f64, BotStateError> {
+    pub async fn get_consultant_price(&self, model: &str) -> Result<f64, BotStateError> {
         let row = sqlx::query(
-            "SELECT price_per_minute_ton FROM psychologist_prices WHERE model = $1"
+            "SELECT price_per_minute FROM consultants WHERE model = $1 AND is_active = true"
         )
         .bind(model)
         .fetch_optional(&self.db.pool)
         .await?;
 
         if let Some(row) = row {
-            Ok(row.get("price_per_minute_ton"))
+            Ok(row.get("price_per_minute"))
         } else {
-            // Цена по умолчанию, если не найдена
-            Ok(0.1)
+            Ok(0.1) // Цена по умолчанию
         }
-    }
-
-    pub async fn update_psychologist_price(&self, model: &str, price: f64) -> Result<(), BotStateError> {
-        sqlx::query(
-            "INSERT INTO psychologist_prices (model, price_per_minute_ton, updated_at) 
-             VALUES ($1, $2, NOW())
-             ON CONFLICT (model) 
-             DO UPDATE SET 
-                price_per_minute_ton = EXCLUDED.price_per_minute_ton,
-                updated_at = NOW()"
-        )
-        .bind(model)
-        .bind(price)
-        .execute(&self.db.pool)
-        .await?;
-
-        Ok(())
     }
 
     pub async fn get_user_state(&self, chat_id: ChatId) -> UserState {
@@ -523,5 +449,19 @@ impl BotState {
         } else {
             Ok(())
         }
+    }
+
+    // Новый метод для работы со слотами времени
+    pub async fn get_time_slots(&self) -> Result<Vec<crate::models::TimeSlot>, BotStateError> {
+        let rows = sqlx::query_as::<_, crate::models::TimeSlot>(
+            "SELECT id, duration_minutes, description, is_active, sort_order 
+             FROM time_slots 
+             WHERE is_active = true 
+             ORDER BY sort_order ASC"
+        )
+        .fetch_all(&self.db.pool)
+        .await?;
+
+        Ok(rows)
     }
 }

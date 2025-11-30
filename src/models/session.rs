@@ -7,7 +7,7 @@ use crate::llm::config::ChatMessage;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserSession {
     pub chat_id: ChatId,
-    pub psychologist_model: String,
+    pub consultant_model: String,
     pub session_start: DateTime<Utc>,
     pub paid_until: DateTime<Utc>,
     pub total_price: f64,
