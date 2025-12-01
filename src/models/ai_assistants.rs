@@ -1,11 +1,12 @@
 use serde::{Serialize, Deserialize};
 use sqlx::FromRow;
+use sqlx::Row;
 
 use crate::bot_state::BotState;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct AIAssistant {
-    pub id: i32, // Новое поле ID
+    pub id: i32,
     pub name: String,
     pub prompt: String,
     pub model: String,
@@ -66,11 +67,32 @@ impl AIAssistant {
         }
     }
 
+    pub async fn get_model_by_id(state: &BotState, id: i32) -> Option<String> {
+        match sqlx::query(
+            "SELECT model FROM consultants WHERE id = $1 AND is_active = true"
+        )
+        .bind(id)
+        .fetch_optional(&state.db.pool)
+        .await {
+            Ok(Some(row)) => Some(row.get("model")),
+            Ok(None) => {
+                log::warn!("Assistant with id {} not found in database", id);
+                None
+            }
+            Err(e) => {
+                log::error!("Error fetching assistant model from database: {}", e);
+                None
+            }
+        }
+    }
+
     pub async fn find_by_model_with_price(state: &BotState, model: &str) -> Option<Self> {
         match sqlx::query_as::<_, AIAssistant>(
             "SELECT id, name, prompt, model, description, specialty, greeting, price_per_minute 
              FROM consultants 
-             WHERE model = $1 AND is_active = true"
+             WHERE model = $1 AND is_active = true
+             ORDER BY id ASC
+             LIMIT 1"
         )
         .bind(model)
         .fetch_optional(&state.db.pool)
@@ -142,5 +164,24 @@ impl AIAssistant {
         .await?;
 
         Ok(())
+    }
+
+    // Новый метод для получения всех консультантов по модели
+    pub async fn find_all_by_model(state: &BotState, model: &str) -> Vec<Self> {
+        match sqlx::query_as::<_, AIAssistant>(
+            "SELECT id, name, prompt, model, description, specialty, greeting, price_per_minute 
+             FROM consultants 
+             WHERE model = $1 AND is_active = true
+             ORDER BY id ASC"
+        )
+        .bind(model)
+        .fetch_all(&state.db.pool)
+        .await {
+            Ok(assistants) => assistants,
+            Err(e) => {
+                log::error!("Error fetching assistants by model from database: {}", e);
+                vec![]
+            }
+        }
     }
 }

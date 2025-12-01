@@ -33,21 +33,20 @@ async fn handle_start(
     state: BotState
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let user_state = state.get_user_state(msg.chat.id).await;
-    let assistants = AIAssistant::get_all_assistants(&state).await;
-    let _current_assistant = AIAssistant::find_by_model(&state, &user_state.current_model).await
+    
+    // Находим консультанта по ID из состояния пользователя
+    let _current_assistant = AIAssistant::find_by_id_with_price(&state, user_state.current_assistant_id).await
         .unwrap_or_else(|| {
-            assistants.first()
-                .cloned()
-                .unwrap_or_else(|| AIAssistant {
-                    id: 1,
-                    name: "Анна".to_string(),
-                    model: "GigaChat-2-Max".to_string(),
-                    description: "Интерактивный помощник".to_string(),
-                    specialty: "Общение и поддержка".to_string(),
-                    greeting: "Здравствуйте!".to_string(),
-                    prompt: "Ты помощник.".to_string(),
-                    price_per_minute: 0.1,
-                })
+            AIAssistant {
+                id: 1,
+                name: "Анна".to_string(),
+                model: "GigaChat-2-Max".to_string(),
+                description: "Интерактивный помощник".to_string(),
+                specialty: "Общение и поддержка".to_string(),
+                greeting: "Здравствуйте!".to_string(),
+                prompt: "Ты помощник.".to_string(),
+                price_per_minute: 0.1,
+            }
         });
 
     let start_text = "👋 *Добро пожаловать в ListenerBot\\!*\n\n\

@@ -7,7 +7,7 @@ use super::UserSession;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UserState {
-    pub current_model: String,
+    pub current_assistant_id: i32, // Изменено: вместо model -> id
     pub current_session: Option<UserSession>,
     pub conversation_history: HashMap<ChatId, Vec<String>>,
     pub user_temperatures: HashMap<ChatId, f32>,

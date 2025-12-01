@@ -27,7 +27,7 @@ impl Database {
             r#"
             CREATE TABLE IF NOT EXISTS user_states (
                 chat_id BIGINT PRIMARY KEY,
-                current_model TEXT NOT NULL DEFAULT 'GigaChat-2-Max',
+                current_assistant_id INTEGER NOT NULL DEFAULT 1,
                 current_session JSONB,
                 conversation_history JSONB NOT NULL DEFAULT '{}',
                 user_temperatures JSONB NOT NULL DEFAULT '{}',
@@ -39,39 +39,17 @@ impl Database {
         .execute(&self.pool)
         .await?;
     
-        // Удаляем старую таблицу bookings и создаем новую без scheduled_start
+        // Удаляем старую таблицу bookings
         sqlx::query("DROP TABLE IF EXISTS bookings")
             .execute(&self.pool)
             .await?;
 
-        // Создаем новую таблицу bookings без scheduled_start
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS bookings (
-                id TEXT PRIMARY KEY,
-                chat_id BIGINT NOT NULL,
-                consultant_model TEXT NOT NULL,
-                duration_minutes INTEGER NOT NULL,
-                total_price DOUBLE PRECISION NOT NULL,
-                invoice_payload TEXT NOT NULL,
-                is_paid BOOLEAN NOT NULL DEFAULT false,
-                is_completed BOOLEAN NOT NULL DEFAULT false,
-                payment_invoice_message_id BIGINT,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                expires_at TIMESTAMP WITH TIME ZONE DEFAULT (NOW() + INTERVAL '5 minutes')
-            )
-            "#,
-        )
-        .execute(&self.pool)
-        .await?;
-    
-        // Таблица для консультантов с ID
+        // Таблица для консультантов
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS consultants (
                 id SERIAL PRIMARY KEY,
-                model TEXT NOT NULL UNIQUE,
+                model TEXT NOT NULL,
                 name TEXT NOT NULL,
                 description TEXT NOT NULL,
                 specialty TEXT NOT NULL,
@@ -86,6 +64,30 @@ impl Database {
         )
         .execute(&self.pool)
         .await?;
+
+        // Создаем новую таблицу bookings с assistant_id
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS bookings (
+                id TEXT PRIMARY KEY,
+                chat_id BIGINT NOT NULL,
+                assistant_id INTEGER NOT NULL,
+                duration_minutes INTEGER NOT NULL,
+                total_price DOUBLE PRECISION NOT NULL,
+                invoice_payload TEXT NOT NULL,
+                is_paid BOOLEAN NOT NULL DEFAULT false,
+                is_completed BOOLEAN NOT NULL DEFAULT false,
+                payment_invoice_message_id BIGINT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                expires_at TIMESTAMP WITH TIME ZONE DEFAULT (NOW() + INTERVAL '5 minutes'),
+                FOREIGN KEY (assistant_id) REFERENCES consultants(id)
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+    
 
         // Таблица для слотов времени
         sqlx::query(
@@ -141,25 +143,6 @@ impl Database {
         )
         .execute(&self.pool)
         .await?;
-
-        // Инициализация слотов времени по умолчанию
-        // sqlx::query(
-        //     r#"
-        //     INSERT INTO time_slots (duration_minutes, description, sort_order) 
-        //     VALUES 
-        //         (15, 'Короткая сессия', 1),
-        //         (30, 'Стандартная сессия', 2),
-        //         (45, 'Продолжительная сессия', 3),
-        //         (60, 'Расширенная сессия', 4)
-        //     ON CONFLICT (id) DO UPDATE SET
-        //         duration_minutes = EXCLUDED.duration_minutes,
-        //         description = EXCLUDED.description,
-        //         sort_order = EXCLUDED.sort_order,
-        //         updated_at = NOW()
-        //     "#
-        // )
-        // .execute(&self.pool)
-        // .await?;
     
         // Создаем индексы
         sqlx::query(
@@ -167,9 +150,21 @@ impl Database {
         )
         .execute(&self.pool)
         .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_user_states_assistant_id ON user_states (current_assistant_id)"
+        )
+        .execute(&self.pool)
+        .await?;
     
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_bookings_chat_id ON bookings (chat_id)"
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_bookings_assistant_id ON bookings (assistant_id)"
         )
         .execute(&self.pool)
         .await?;

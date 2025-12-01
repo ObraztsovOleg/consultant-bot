@@ -75,8 +75,8 @@ pub async fn successful_payment_handler(
         let booking = match state.get_booking_by_payload(invoice_payload).await {
             Ok(Some(booking)) => {
                 log::info!("✅ Found booking: {}", booking.id);
-                log::info!("Booking details: consultant={}, duration={}min, is_paid={}", 
-                    booking.consultant_model, booking.duration_minutes, booking.is_paid);
+                log::info!("Booking details: assistant_id={}, duration={}min, is_paid={}", 
+                    booking.assistant_id, booking.duration_minutes, booking.is_paid);
                 booking
             },
             Ok(None) => {
@@ -126,36 +126,34 @@ pub async fn successful_payment_handler(
         
         log::info!("✅ Booking updated successfully: {}", updated_booking.id);
         
-        let assistants = AIAssistant::get_all_assistants(&state).await;
-        let assistant = AIAssistant::find_by_model(&state, &booking.consultant_model).await
+        // Получаем консультанта по ID из бронирования
+        let assistant = AIAssistant::find_by_id_with_price(&state, booking.assistant_id).await
             .unwrap_or_else(|| {
-                assistants.first()
-                    .cloned()
-                    .unwrap_or_else(|| AIAssistant {
-                        id: 1,
-                        name: "Анна".to_string(),
-                        model: "GigaChat-2-Max".to_string(),
-                        description: "Интерактивный помощник".to_string(),
-                        specialty: "Общение и поддержка".to_string(),
-                        greeting: "Здравствуйте!".to_string(),
-                        prompt: "Ты помощник.".to_string(),
-                        price_per_minute: 0.1,
-                    })
+                AIAssistant {
+                    id: 1,
+                    name: "Анна".to_string(),
+                    model: "GigaChat-2-Max".to_string(),
+                    description: "Интерактивный помощник".to_string(),
+                    specialty: "Общение и поддержка".to_string(),
+                    greeting: "Здравствуйте!".to_string(),
+                    prompt: "Ты помощник.".to_string(),
+                    price_per_minute: 0.1,
+                }
             });
 
         let mut user_state = state.get_user_state(chat_id).await;
         
-        // ВСЕ СЕССИИ ТЕПЕРЬ НЕМЕДЛЕННЫЕ - создаем активную сессию сразу
+        // Создаем активную сессию
         let session = UserSession {
             chat_id,
-            consultant_model: booking.consultant_model.clone(),
+            assistant_id: booking.assistant_id, // Сохраняем ID консультанта
             session_start: Utc::now(),
             paid_until: Utc::now() + Duration::minutes(booking.duration_minutes as i64),
             total_price: booking.total_price,
             messages_exchanged: 0,
             is_active: true,
             history: Vec::new(),
-            scheduled_start: None, // Убрано запланированное время
+            scheduled_start: None,
         };
         user_state.current_session = Some(session);
         

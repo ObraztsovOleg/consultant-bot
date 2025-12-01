@@ -8,6 +8,6 @@ pub mod time_slot;
 pub use ai_assistants::AIAssistant;
 pub use booking::Booking;
 pub use session::UserSession;
-pub use payment_config::{PaymentConfig};
+pub use payment_config::PaymentConfig;
 pub use user_state::UserState;
 pub use time_slot::TimeSlot;

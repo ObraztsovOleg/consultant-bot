@@ -73,11 +73,11 @@ impl BotState {
         sqlx::query(
             r#"
             INSERT INTO user_states 
-            (chat_id, current_model, current_session, conversation_history, user_temperatures, updated_at)
+            (chat_id, current_assistant_id, current_session, conversation_history, user_temperatures, updated_at)
             VALUES ($1, $2, $3, $4, $5, NOW())
             ON CONFLICT (chat_id) 
             DO UPDATE SET 
-                current_model = EXCLUDED.current_model,
+                current_assistant_id = EXCLUDED.current_assistant_id,
                 current_session = EXCLUDED.current_session,
                 conversation_history = EXCLUDED.conversation_history,
                 user_temperatures = EXCLUDED.user_temperatures,
@@ -85,7 +85,7 @@ impl BotState {
             "#
         )
         .bind(chat_id.0 as i64)
-        .bind(&state.current_model)
+        .bind(state.current_assistant_id)
         .bind(current_session_json)
         .bind(conversation_history_json)
         .bind(user_temperatures_json)
@@ -107,7 +107,7 @@ impl BotState {
         sqlx::query(
             r#"
             INSERT INTO bookings 
-            (id, chat_id, consultant_model, duration_minutes, total_price, 
+            (id, chat_id, assistant_id, duration_minutes, total_price, 
              invoice_payload, is_paid, is_completed, payment_invoice_message_id, 
              expires_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW() + INTERVAL '5 minutes', NOW())
@@ -125,7 +125,7 @@ impl BotState {
         )
         .bind(&booking.id)
         .bind(booking.user_id.0 as i64)
-        .bind(&booking.consultant_model)
+        .bind(booking.assistant_id)
         .bind(booking.duration_minutes as i32)
         .bind(booking.total_price)
         .bind(&booking.invoice_payload)
@@ -138,14 +138,12 @@ impl BotState {
         Ok(())
     }
 
-    // Убрана функция is_time_slot_taken, так как больше нет бронирования по времени
-
     pub async fn get_user_bookings(&self, chat_id: ChatId) -> Result<Vec<Booking>, BotStateError> {
         // Сначала удаляем просроченные неоплаченные брони
         self.cleanup_expired_bookings().await?;
 
         let rows = sqlx::query(
-            "SELECT id, chat_id, consultant_model, duration_minutes, total_price, 
+            "SELECT id, chat_id, assistant_id, duration_minutes, total_price, 
                     invoice_payload, is_paid, is_completed, payment_invoice_message_id, 
                     created_at, expires_at
              FROM bookings 
@@ -162,7 +160,7 @@ impl BotState {
             let booking = Booking {
                 id: row.get("id"),
                 user_id: ChatId(row.get::<i64, _>("chat_id") as i64),
-                consultant_model: row.get("consultant_model"),
+                assistant_id: row.get("assistant_id"),
                 duration_minutes: row.get::<i32, _>("duration_minutes") as u32,
                 total_price: row.get("total_price"),
                 invoice_payload: row.get("invoice_payload"),
@@ -198,7 +196,7 @@ impl BotState {
 
     pub async fn get_booking_by_payload(&self, invoice_payload: &str) -> Result<Option<Booking>, BotStateError> {
         let row = sqlx::query(
-            "SELECT id, chat_id, consultant_model, duration_minutes, total_price, 
+            "SELECT id, chat_id, assistant_id, duration_minutes, total_price, 
                     invoice_payload, is_paid, is_completed, payment_invoice_message_id, 
                     created_at, expires_at
              FROM bookings 
@@ -212,7 +210,7 @@ impl BotState {
             let booking = Booking {
                 id: row.get("id"),
                 user_id: ChatId(row.get::<i64, _>("chat_id") as i64),
-                consultant_model: row.get("consultant_model"),
+                assistant_id: row.get("assistant_id"),
                 duration_minutes: row.get::<i32, _>("duration_minutes") as u32,
                 total_price: row.get("total_price"),
                 invoice_payload: row.get("invoice_payload"),
@@ -231,7 +229,7 @@ impl BotState {
 
     pub async fn get_booking_by_id(&self, booking_id: &str) -> Result<Option<Booking>, BotStateError> {
         let row = sqlx::query(
-            "SELECT id, chat_id, consultant_model, duration_minutes, total_price, 
+            "SELECT id, chat_id, assistant_id, duration_minutes, total_price, 
                     invoice_payload, is_paid, is_completed, payment_invoice_message_id, 
                     created_at, expires_at
              FROM bookings WHERE id = $1"
@@ -244,7 +242,7 @@ impl BotState {
             let booking = Booking {
                 id: row.get("id"),
                 user_id: ChatId(row.get::<i64, _>("chat_id") as i64),
-                consultant_model: row.get("consultant_model"),
+                assistant_id: row.get("assistant_id"),
                 duration_minutes: row.get::<i32, _>("duration_minutes") as u32,
                 total_price: row.get("total_price"),
                 invoice_payload: row.get("invoice_payload"),
@@ -274,19 +272,21 @@ impl BotState {
     }
 
     pub async fn find_booking_for_session(&self, session: &UserSession) -> Result<Option<Booking>, BotStateError> {
+        // Теперь session должен хранить assistant_id вместо model
+        // Пока оставляем старую логику, но нужно обновить и UserSession
         let row = sqlx::query(
-            "SELECT id, chat_id, consultant_model, duration_minutes, total_price, 
+            "SELECT id, chat_id, assistant_id, duration_minutes, total_price, 
                     invoice_payload, is_paid, is_completed, payment_invoice_message_id, 
                     created_at, expires_at
              FROM bookings 
              WHERE chat_id = $1 
-             AND consultant_model = $2 
+             AND assistant_id = $2 
              AND is_paid = true
              ORDER BY created_at DESC
              LIMIT 1"
         )
         .bind(session.chat_id.0 as i64)
-        .bind(&session.consultant_model)
+        .bind(session.assistant_id) // Нужно обновить UserSession
         .fetch_optional(&self.db.pool)
         .await?;
 
@@ -294,7 +294,7 @@ impl BotState {
             let booking = Booking {
                 id: row.get("id"),
                 user_id: ChatId(row.get::<i64, _>("chat_id") as i64),
-                consultant_model: row.get("consultant_model"),
+                assistant_id: row.get("assistant_id"),
                 duration_minutes: row.get::<i32, _>("duration_minutes") as u32,
                 total_price: row.get("total_price"),
                 invoice_payload: row.get("invoice_payload"),
@@ -311,13 +311,11 @@ impl BotState {
         }
     }
 
-    // Убрана функция get_booked_time_slots, так как больше нет бронирования по времени
-
-    pub async fn get_consultant_price(&self, model: &str) -> Result<f64, BotStateError> {
+    pub async fn get_consultant_price_by_id(&self, assistant_id: i32) -> Result<f64, BotStateError> {
         let row = sqlx::query(
-            "SELECT price_per_minute FROM consultants WHERE model = $1 AND is_active = true"
+            "SELECT price_per_minute FROM consultants WHERE id = $1 AND is_active = true"
         )
-        .bind(model)
+        .bind(assistant_id)
         .fetch_optional(&self.db.pool)
         .await?;
 
@@ -359,7 +357,7 @@ impl BotState {
 
     async fn fetch_user_state_from_db(&self, chat_id: ChatId) -> Result<UserState, BotStateError> {
         let row = sqlx::query(
-            "SELECT current_model, current_session, conversation_history, user_temperatures 
+            "SELECT current_assistant_id, current_session, conversation_history, user_temperatures 
              FROM user_states WHERE chat_id = $1"
         )
         .bind(chat_id.0 as i64)
@@ -367,7 +365,7 @@ impl BotState {
         .await?;
 
         if let Some(row) = row {
-            let current_model: String = row.get("current_model");
+            let current_assistant_id: i32 = row.get("current_assistant_id");
             let current_session: Option<serde_json::Value> = row.get("current_session");
             let conversation_history_json: serde_json::Value = row.get("conversation_history");
             let user_temperatures_json: serde_json::Value = row.get("user_temperatures");
@@ -377,7 +375,7 @@ impl BotState {
                 .transpose()?;
 
             Ok(UserState {
-                current_model,
+                current_assistant_id,
                 current_session,
                 conversation_history: serde_json::from_value(conversation_history_json)?,
                 user_temperatures: serde_json::from_value(user_temperatures_json)?,
@@ -392,14 +390,14 @@ impl BotState {
         let mut states = HashMap::new();
 
         if let Ok(rows) = sqlx::query(
-            "SELECT chat_id, current_model, current_session, conversation_history, user_temperatures 
+            "SELECT chat_id, current_assistant_id, current_session, conversation_history, user_temperatures 
              FROM user_states"
         )
         .fetch_all(&self.db.pool)
         .await {
             for row in rows {
                 let chat_id = ChatId(row.get::<i64, _>("chat_id") as i64);
-                let current_model: String = row.get("current_model");
+                let current_assistant_id: i32 = row.get("current_assistant_id");
                 let current_session: Option<serde_json::Value> = row.get("current_session");
                 let conversation_history_json: serde_json::Value = row.get("conversation_history");
                 let user_temperatures_json: serde_json::Value = row.get("user_temperatures");
@@ -414,7 +412,7 @@ impl BotState {
                         .unwrap_or(None);
 
                     let user_state = UserState {
-                        current_model,
+                        current_assistant_id,
                         current_session,
                         conversation_history,
                         user_temperatures,
@@ -451,7 +449,6 @@ impl BotState {
         }
     }
 
-    // Новый метод для работы со слотами времени
     pub async fn get_time_slots(&self) -> Result<Vec<crate::models::TimeSlot>, BotStateError> {
         let rows = sqlx::query_as::<_, crate::models::TimeSlot>(
             "SELECT id, duration_minutes, description, is_active, sort_order 

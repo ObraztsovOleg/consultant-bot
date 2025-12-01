@@ -7,12 +7,12 @@ use crate::llm::config::ChatMessage;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserSession {
     pub chat_id: ChatId,
-    pub consultant_model: String,
+    pub assistant_id: i32,
     pub session_start: DateTime<Utc>,
     pub paid_until: DateTime<Utc>,
     pub total_price: f64,
     pub messages_exchanged: u32,
     pub history: Vec<ChatMessage>,
     pub is_active: bool,
-    pub scheduled_start: Option<DateTime<Utc>>, // Добавляем поле для запланированного времени
+    pub scheduled_start: Option<DateTime<Utc>>,
 }

@@ -40,7 +40,7 @@ pub async fn make_ai_keyboard(state: &BotState) -> InlineKeyboardMarkup {
     for assistant in assistants {
         keyboard.push(vec![InlineKeyboardButton::callback(
             format_ai_info(&assistant),
-            format!("select_ai_{}", assistant.id), // Используем ID вместо model
+            format!("select_ai_{}", assistant.id), // Используем ID
         )]);
     }
 
@@ -57,7 +57,7 @@ pub async fn make_consultants_info_keyboard(state: &BotState) -> InlineKeyboardM
     for assistant in assistants {
         keyboard.push(vec![InlineKeyboardButton::callback(
             format!("ℹ️ {} - {}", assistant.name, assistant.specialty),
-            format!("consultant_info_{}", assistant.id), // Используем ID вместо model
+            format!("consultant_info_{}", assistant.id), // Используем ID
         )]);
     }
 
@@ -152,22 +152,19 @@ pub async fn show_user_sessions(bot: &Bot, chat_id: ChatId, state: &BotState) ->
     let mut keyboard: Vec<Vec<InlineKeyboardButton>> = Vec::new();
 
     for booking in &user_bookings {
-        let assistants = AIAssistant::get_all_assistants(state).await;
-        let assistant = AIAssistant::find_by_model_with_price(&state, &booking.consultant_model).await
+        // Находим консультанта по ID из бронирования
+        let assistant = AIAssistant::find_by_id_with_price(&state, booking.assistant_id).await
             .unwrap_or_else(|| {
-                // Fallback если не найден в БД
-                assistants.first()
-                    .cloned()
-                    .unwrap_or_else(|| AIAssistant {
-                        id: 1,
-                        name: "Анна".to_string(),
-                        model: "GigaChat-2-Max".to_string(),
-                        description: "Интерактивный помощник".to_string(),
-                        specialty: "Общение и поддержка".to_string(),
-                        greeting: "Здравствуйте!".to_string(),
-                        prompt: "Ты помощник.".to_string(),
-                        price_per_minute: 0.1,
-                    })
+                AIAssistant {
+                    id: 1,
+                    name: "Анна".to_string(),
+                    model: "GigaChat-2-Max".to_string(),
+                    description: "Интерактивный помощник".to_string(),
+                    specialty: "Общение и поддержка".to_string(),
+                    greeting: "Здравствуйте!".to_string(),
+                    prompt: "Ты помощник.".to_string(),
+                    price_per_minute: 0.1,
+                }
             });
         
         // Информационная кнопка

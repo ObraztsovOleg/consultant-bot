@@ -28,25 +28,22 @@ pub async fn callback_handler(
                 data if data.starts_with("select_ai_") => {
                     let id_str = data.strip_prefix("select_ai_").unwrap();
                     if let Ok(id) = id_str.parse::<i32>() {
-                        let assistants = AIAssistant::get_all_assistants(&state).await;
                         let assistant = AIAssistant::find_by_id_with_price(&state, id).await
                             .unwrap_or_else(|| {
-                                assistants.first()
-                                    .cloned()
-                                    .unwrap_or_else(|| AIAssistant {
-                                        id: 1,
-                                        name: "Анна".to_string(),
-                                        model: "GigaChat-2-Max".to_string(),
-                                        description: "Интерактивный помощник".to_string(),
-                                        specialty: "Общение и поддержка".to_string(),
-                                        greeting: "Здравствуйте!".to_string(),
-                                        prompt: "Ты помощник.".to_string(),
-                                        price_per_minute: 0.1,
-                                    })
+                                AIAssistant {
+                                    id: 1,
+                                    name: "Анна".to_string(),
+                                    model: "GigaChat-2-Max".to_string(),
+                                    description: "Интерактивный помощник".to_string(),
+                                    specialty: "Общение и поддержка".to_string(),
+                                    greeting: "Здравствуйте!".to_string(),
+                                    prompt: "Ты помощник.".to_string(),
+                                    price_per_minute: 0.1,
+                                }
                             });
                         
                         let mut user_state = state.get_user_state(chat_id).await;
-                        user_state.current_model = assistant.model.clone();
+                        user_state.current_assistant_id = assistant.id; // Сохраняем ID
                         
                         // Сохраняем выбор консультанта
                         if let Err(e) = state.save_user_state(chat_id, user_state).await {
@@ -76,22 +73,18 @@ pub async fn callback_handler(
                 data if data.starts_with("consultant_info_") => {
                     let id_str = data.strip_prefix("consultant_info_").unwrap();
                     if let Ok(id) = id_str.parse::<i32>() {
-                        let assistants = AIAssistant::get_all_assistants(&state).await;
                         let assistant = AIAssistant::find_by_id_with_price(&state, id).await
                             .unwrap_or_else(|| {
-                                // Fallback если не найден в БД
-                                assistants.first()
-                                    .cloned()
-                                    .unwrap_or_else(|| AIAssistant {
-                                        id: 1,
-                                        name: "Анна".to_string(),
-                                        model: "GigaChat-2-Max".to_string(),
-                                        description: "Интерактивный помощник".to_string(),
-                                        specialty: "Общение и поддержка".to_string(),
-                                        greeting: "Здравствуйте!".to_string(),
-                                        prompt: "Ты помощник.".to_string(),
-                                        price_per_minute: 0.1,
-                                    })
+                                AIAssistant {
+                                    id: 1,
+                                    name: "Анна".to_string(),
+                                    model: "GigaChat-2-Max".to_string(),
+                                    description: "Интерактивный помощник".to_string(),
+                                    specialty: "Общение и поддержка".to_string(),
+                                    greeting: "Здравствуйте!".to_string(),
+                                    prompt: "Ты помощник.".to_string(),
+                                    price_per_minute: 0.1,
+                                }
                             });
                         
                         bot.edit_message_text(
@@ -124,21 +117,20 @@ pub async fn callback_handler(
                     let slot_id = data.strip_prefix("time_slot_").unwrap().parse::<i32>().unwrap_or(0);
                     
                     let user_state = state.get_user_state(chat_id).await;
-                    let assistants = AIAssistant::get_all_assistants(&state).await;
-                    let assistant = AIAssistant::find_by_model_with_price(&state, &user_state.current_model).await
+                    
+                    // Находим консультанта по ID из текущего состояния
+                    let assistant = AIAssistant::find_by_id_with_price(&state, user_state.current_assistant_id).await
                         .unwrap_or_else(|| {
-                            assistants.first()
-                                .cloned()
-                                .unwrap_or_else(|| AIAssistant {
-                                    id: 1,
-                                    name: "Анна".to_string(),
-                                    model: "GigaChat-2-Max".to_string(),
-                                    description: "Интерактивный помощник".to_string(),
-                                    specialty: "Общение и поддержка".to_string(),
-                                    greeting: "Здравствуйте!".to_string(),
-                                    prompt: "Ты помощник.".to_string(),
-                                    price_per_minute: 0.1,
-                                })
+                            AIAssistant {
+                                id: 1,
+                                name: "Анна".to_string(),
+                                model: "GigaChat-2-Max".to_string(),
+                                description: "Интерактивный помощник".to_string(),
+                                specialty: "Общение и поддержка".to_string(),
+                                greeting: "Здравствуйте!".to_string(),
+                                prompt: "Ты помощник.".to_string(),
+                                price_per_minute: 0.1,
+                            }
                         });
                 
                     let time_slots = TimeSlot::get_all_active_slots(&state).await;
@@ -154,7 +146,7 @@ pub async fn callback_handler(
                     let booking = Booking {
                         id: booking_id.clone(),
                         user_id: chat_id,
-                        consultant_model: assistant.model.clone(),
+                        assistant_id: assistant.id, // Сохраняем ID консультанта
                         duration_minutes,
                         total_price,
                         invoice_payload: invoice_payload.clone(),
@@ -255,22 +247,19 @@ pub async fn callback_handler(
                     match state.get_booking_by_id(booking_id).await {
                         Ok(Some(booking)) => {
                             if booking.user_id == chat_id {
-                                let assistants = AIAssistant::get_all_assistants(&state).await;
-                                let assistant = AIAssistant::find_by_model(&state, &booking.consultant_model).await
+                                // Находим консультанта по ID из бронирования
+                                let assistant = AIAssistant::find_by_id_with_price(&state, booking.assistant_id).await
                                     .unwrap_or_else(|| {
-                                        // Fallback если не найден в БД
-                                        assistants.first()
-                                            .cloned()
-                                            .unwrap_or_else(|| AIAssistant {
-                                                id: 1,
-                                                name: "Анна".to_string(),
-                                                model: "GigaChat-2-Max".to_string(),
-                                                description: "Интерактивный помощник".to_string(),
-                                                specialty: "Общение и поддержка".to_string(),
-                                                greeting: "Здравствуйте!".to_string(),
-                                                prompt: "Ты помощник.".to_string(),
-                                                price_per_minute: 0.1,
-                                            })
+                                        AIAssistant {
+                                            id: 1,
+                                            name: "Анна".to_string(),
+                                            model: "GigaChat-2-Max".to_string(),
+                                            description: "Интерактивный помощник".to_string(),
+                                            specialty: "Общение и поддержка".to_string(),
+                                            greeting: "Здравствуйте!".to_string(),
+                                            prompt: "Ты помощник.".to_string(),
+                                            price_per_minute: 0.1,
+                                        }
                                     });
                                 
                                 let status = if booking.is_paid {
