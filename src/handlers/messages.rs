@@ -76,6 +76,7 @@ pub async fn message_handler(
                         assistants.first()
                             .cloned()
                             .unwrap_or_else(|| AIAssistant {
+                                id: 1,
                                 name: "Анна".to_string(),
                                 model: "GigaChat-2-Max".to_string(),
                                 description: "Интерактивный помощник".to_string(),
@@ -113,9 +114,21 @@ pub async fn message_handler(
                 let mut user_state = state.get_user_state(msg.chat.id).await;
                 if let Some(session) = &mut user_state.current_session {
                     if session.history.is_empty() {
+                        let telegram_prompt = format!(
+                            "{}\n\n\
+                            - Используй *жирный текст* для выделения важных моментов (одну звездочку вместо двух)\n\
+                            - Используй _курсив_ для акцентов\n\
+                            - Используй эмодзи для выразительности\n\
+                            - Если нужно показать код, используй обратные кавычки: `код`\n\
+                            - Для списков используй маркеры • или цифры\n\
+                            - Используй MarkdownV2 для форматирования текста\n\
+                            Твои будут отображаться в Telegram, поэтому форматируй их соответствующим образом",
+                            current_assistant.prompt
+                        );
+                        
                         session.history.push(ChatMessage {
                             role: "system".to_string(),
-                            content: Some(current_assistant.prompt.clone()),
+                            content: Some(telegram_prompt),
                             tool_calls: None,
                             tool_call_id: None,
                             name: None
@@ -144,9 +157,12 @@ pub async fn message_handler(
                     ).await?;
                     
                     if let Some(ai_response) = response.content {
+                        // ДОБАВЛЯЕМ ПРОВЕРКУ И КОРРЕКЦИЮ ФОРМАТИРОВАНИЯ
+                        let cleaned_response = clean_telegram_markdown(&ai_response);
+                        
                         session.history.push(ChatMessage {
                             role: "assistant".to_string(),
-                            content: Some(ai_response.clone()),
+                            content: Some(cleaned_response.clone()),
                             tool_calls: None,
                             tool_call_id: None,
                             name: None
@@ -164,8 +180,7 @@ pub async fn message_handler(
                             .await?;
                         }
 
-                        // Отправка ответа пользователю
-                        send_ai_message(&bot, msg.chat.id, &current_assistant.name, &ai_response).await?;
+                        send_ai_message(&bot, msg.chat.id, &current_assistant.name, &cleaned_response).await?;
 
                         log::info!("💬 Response sent. Messages exchanged: {}", session.messages_exchanged);
                     } else {
@@ -202,4 +217,47 @@ pub async fn message_handler(
         .await?;
     }
     Ok(())
+}
+
+/// Функция для очистки и корректировки Markdown для Telegram
+fn clean_telegram_markdown(text: &str) -> String {
+    let mut cleaned = text.to_string();
+    
+    // Заменяем HTML-теги на Markdown
+    cleaned = cleaned.replace("<b>", "*").replace("</b>", "*");
+    cleaned = cleaned.replace("<strong>", "*").replace("</strong>", "*");
+    cleaned = cleaned.replace("<i>", "_").replace("</i>", "_");
+    cleaned = cleaned.replace("<em>", "_").replace("</em>", "_");
+    cleaned = cleaned.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n");
+    cleaned = cleaned.replace("<p>", "\n").replace("</p>", "\n");
+    
+    // Удаляем другие HTML-теги
+    cleaned = cleaned.replace("<u>", "").replace("</u>", "");
+    cleaned = cleaned.replace("<s>", "").replace("</s>", "");
+    cleaned = cleaned.replace("<code>", "`").replace("</code>", "`");
+    cleaned = cleaned.replace("<pre>", "```\n").replace("</pre>", "\n```");
+    
+    // Экранируем специальные символы MarkdownV2
+    let specials = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'];
+    let mut result = String::with_capacity(cleaned.len() * 2);
+    
+    for ch in cleaned.chars() {
+        if specials.contains(&ch) {
+            result.push('\\');
+        }
+        result.push(ch);
+    }
+    
+    // Убираем лишние переносы строк
+    while result.contains("\n\n\n") {
+        result = result.replace("\n\n\n", "\n\n");
+    }
+    
+    // Обрезаем слишком длинные сообщения (Telegram ограничение ~4096 символов)
+    if result.len() > 3800 {
+        result = result.chars().take(3800).collect();
+        result.push_str("\n\n\\[Сообщение было сокращено\\]");
+    }
+    
+    result
 }

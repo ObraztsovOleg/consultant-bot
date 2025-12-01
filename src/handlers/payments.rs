@@ -5,7 +5,7 @@ use chrono::{Utc, Duration};
 
 use crate::bot_state::BotState;
 use crate::models::{PaymentConfig, Booking, AIAssistant, UserSession};
-use crate::handlers::utils::escape_markdown_v2;
+use crate::handlers::utils::{escape_markdown_v2, send_ai_message};
 
 pub async fn send_stars_invoice(
     bot: &Bot,
@@ -16,7 +16,6 @@ pub async fn send_stars_invoice(
 ) -> Result<Message, Box<dyn Error + Send + Sync>> {
     let total_price_stars = (booking.total_price * 100.0) as i32; // Конвертируем в Stars (1 USD = 100 Stars)
 
-    // Убрана проверка scheduled_start, теперь всегда немедленная сессия
     let description = format!(
         "Сессия с консультантом\nКонсультант: {}\nДлительность: {} минут\n⭐ Стоимость: {} Stars",
         assistant.name,
@@ -28,8 +27,9 @@ pub async fn send_stars_invoice(
 
     let prices = vec![LabeledPrice {
         label: format!("Сессия {} ({} мин)", assistant.name, booking.duration_minutes),
-        amount: total_price_stars as u32
+        amount: 1
     }];
+    // total_price_stars as u32
 
     log::info!("🔄 Sending Stars invoice for booking {} to chat {}", booking.id, chat_id);
     log::info!("Invoice payload: {}", booking.invoice_payload);
@@ -133,6 +133,7 @@ pub async fn successful_payment_handler(
                 assistants.first()
                     .cloned()
                     .unwrap_or_else(|| AIAssistant {
+                        id: 1,
                         name: "Анна".to_string(),
                         model: "GigaChat-2-Max".to_string(),
                         description: "Интерактивный помощник".to_string(),
@@ -174,6 +175,8 @@ pub async fn successful_payment_handler(
         bot.send_message(chat_id, &message_text)
             .parse_mode(ParseMode::MarkdownV2)
             .await?;
+        
+        send_ai_message(&bot, chat_id, &assistant.name, &escape_markdown_v2(&assistant.greeting)).await?;
         
         log::info!("🎯 New active session created for user {}", chat_id);
         

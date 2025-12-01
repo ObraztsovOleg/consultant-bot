@@ -36,10 +36,10 @@ async fn handle_start(
     let assistants = AIAssistant::get_all_assistants(&state).await;
     let _current_assistant = AIAssistant::find_by_model(&state, &user_state.current_model).await
         .unwrap_or_else(|| {
-            // Fallback если не найден в БД
             assistants.first()
                 .cloned()
                 .unwrap_or_else(|| AIAssistant {
+                    id: 1,
                     name: "Анна".to_string(),
                     model: "GigaChat-2-Max".to_string(),
                     description: "Интерактивный помощник".to_string(),

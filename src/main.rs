@@ -40,8 +40,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     log::info!("Starting psychologist bot with PostgreSQL...");
 
     // Инициализация базы данных
-    let database_url = env::var("DATABASE_URL")
-        .expect("DATABASE_URL must be set");
+    let database_port = env::var("POSTGRES_PORT")
+        .expect("POSTGRES_PORT must be set");
+    let database_host = env::var("POSTGRES_HOST")
+        .expect("POSTGRES_HOST must be set");
+    let database_user = env::var("POSTGRES_USER")
+        .expect("POSTGRES_USER must be set");
+    let database_pass = env::var("POSTGRES_PASSWORD")
+        .expect("POSTGRES_PASSWORD must be set");
+    let database_db = env::var("POSTGRES_DB")
+        .expect("POSTGRES_DB must be set");
+
+    let database_url = format!(
+        "postgres://{}:{}@{}:{}/{}",
+        database_user, database_pass, database_host, database_port, database_db
+    );
     
     let db = Database::new(&database_url).await?;
     db.init().await?;

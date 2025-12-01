@@ -66,11 +66,12 @@ impl Database {
         .execute(&self.pool)
         .await?;
     
-        // Таблица для консультантов
+        // Таблица для консультантов с ID
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS consultants (
-                model TEXT PRIMARY KEY,
+                id SERIAL PRIMARY KEY,
+                model TEXT NOT NULL UNIQUE,
                 name TEXT NOT NULL,
                 description TEXT NOT NULL,
                 specialty TEXT NOT NULL,
@@ -106,28 +107,29 @@ impl Database {
         // Инициализация консультантов по умолчанию
         sqlx::query(
             r#"
-            INSERT INTO consultants (model, name, description, specialty, greeting, prompt, price_per_minute) 
+            INSERT INTO consultants (id, model, name, description, specialty, greeting, prompt, price_per_minute) 
             VALUES 
-                ('GigaChat-2-Max', 'Анна', 'Интерактивный помощник', 'Общение и поддержка в повседневных задачах', 
+                (1, 'GigaChat-2-Max', 'Анна', 'Интерактивный помощник', 'Общение и поддержка в повседневных задачах', 
                  'Здравствуйте! Я Анна. Я помогу вам обсудить вопросы и получить полезные советы. Расскажите, что вас интересует?',
                  'Ты — Анна, виртуальный помощник, ориентированный на поддержку и советы в повседневной жизни. Твоя цель — помогать пользователю разбирать задачи, давать рекомендации и задавать уточняющие вопросы, чтобы пользователь самостоятельно находил решения.',
                  0.1),
                 
-                ('GigaChat-2-Pro', 'Максим', 'Наставник', 'Помощь в саморазвитии и планировании',
+                (2, 'GigaChat-2-Pro', 'Максим', 'Наставник', 'Помощь в саморазвитии и планировании',
                  'Привет! Я Максим. Я помогу вам планировать задачи, развивать навыки и лучше понимать себя. С чего начнем?',
                  'Ты — Максим, виртуальный наставник для саморазвития. Твоя цель — помогать пользователю в постановке целей, планировании и развитии навыков. Ты задаешь наводящие вопросы и даешь советы, не навязывая решений.',
                  0.09),
                 
-                ('deepseek-chat', 'София', 'консультант', 'Поддержка и мотивация',
+                (3, 'deepseek-chat', 'София', 'консультант', 'Поддержка и мотивация',
                  'Добрый день! Я София. Готова помочь обсудить идеи, задачи или получить мотивацию для новых целей.',
                  'Ты — София, виртуальный консультант для поддержки и мотивации. Твоя цель — создавать безопасное пространство для обсуждения идей и целей, помогать структурировать мысли и находить решения самостоятельно.',
                  0.08),
                 
-                ('GigaChat-2', 'Алексей', 'Коуч', 'Целеполагание и продуктивность',
+                (4, 'GigaChat-2', 'Алексей', 'Коуч', 'Целеполагание и продуктивность',
                  'Здравствуйте! Я Алексей. Я помогу вам определить цели и разработать план действий. С чего начнем?',
                  'Ты — Алексей, виртуальный коуч по постановке целей и повышению продуктивности. Твоя цель — помогать пользователю выявлять задачи, строить планы и находить пути достижения целей. Ты даешь советы и задаешь уточняющие вопросы, чтобы пользователь сам находил оптимальные решения.',
                  0.07)
-            ON CONFLICT (model) DO UPDATE SET
+            ON CONFLICT (id) DO UPDATE SET
+                model = EXCLUDED.model,
                 name = EXCLUDED.name,
                 description = EXCLUDED.description,
                 specialty = EXCLUDED.specialty,
@@ -141,23 +143,23 @@ impl Database {
         .await?;
 
         // Инициализация слотов времени по умолчанию
-        // sqlx::query(
-        //     r#"
-        //     INSERT INTO time_slots (duration_minutes, description, sort_order) 
-        //     VALUES 
-        //         (15, 'Короткая сессия', 1),
-        //         (30, 'Стандартная сессия', 2),
-        //         (45, 'Продолжительная сессия', 3),
-        //         (60, 'Расширенная сессия', 4)
-        //     ON CONFLICT (id) DO UPDATE SET
-        //         duration_minutes = EXCLUDED.duration_minutes,
-        //         description = EXCLUDED.description,
-        //         sort_order = EXCLUDED.sort_order,
-        //         updated_at = NOW()
-        //     "#
-        // )
-        // .execute(&self.pool)
-        // .await?;
+        sqlx::query(
+            r#"
+            INSERT INTO time_slots (duration_minutes, description, sort_order) 
+            VALUES 
+                (15, 'Короткая сессия', 1),
+                (30, 'Стандартная сессия', 2),
+                (45, 'Продолжительная сессия', 3),
+                (60, 'Расширенная сессия', 4)
+            ON CONFLICT (id) DO UPDATE SET
+                duration_minutes = EXCLUDED.duration_minutes,
+                description = EXCLUDED.description,
+                sort_order = EXCLUDED.sort_order,
+                updated_at = NOW()
+            "#
+        )
+        .execute(&self.pool)
+        .await?;
     
         // Создаем индексы
         sqlx::query(
@@ -190,6 +192,12 @@ impl Database {
         .execute(&self.pool)
         .await?;
     
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_consultants_id ON consultants (id)"
+        )
+        .execute(&self.pool)
+        .await?;
+
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_consultants_model ON consultants (model)"
         )

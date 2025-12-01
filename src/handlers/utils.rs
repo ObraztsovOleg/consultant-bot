@@ -1,6 +1,6 @@
 use teloxide::prelude::*;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, KeyboardMarkup, ParseMode, ReplyMarkup};
-use chrono::Utc; // Убрал DateTime
+use chrono::Utc;
 
 use crate::bot_state::BotState;
 use crate::models::{AIAssistant, TimeSlot, UserState};
@@ -40,7 +40,7 @@ pub async fn make_ai_keyboard(state: &BotState) -> InlineKeyboardMarkup {
     for assistant in assistants {
         keyboard.push(vec![InlineKeyboardButton::callback(
             format_ai_info(&assistant),
-            format!("select_ai_{}", assistant.model),
+            format!("select_ai_{}", assistant.id), // Используем ID вместо model
         )]);
     }
 
@@ -56,8 +56,8 @@ pub async fn make_consultants_info_keyboard(state: &BotState) -> InlineKeyboardM
 
     for assistant in assistants {
         keyboard.push(vec![InlineKeyboardButton::callback(
-            format!("ℹ️ {}", assistant.name),
-            format!("consultant_info_{}", assistant.model),
+            format!("ℹ️ {} - {}", assistant.name, assistant.specialty),
+            format!("consultant_info_{}", assistant.id), // Используем ID вместо model
         )]);
     }
 
@@ -87,7 +87,7 @@ pub async fn make_time_slots_keyboard(state: &BotState, assistant: &AIAssistant)
 
 /// Формат информации об AI-персоне
 pub fn format_ai_info(assistant: &AIAssistant) -> String {
-    format!("{}", escape_markdown_v2(&assistant.name))
+    format!("{} - {}", escape_markdown_v2(&assistant.name), escape_markdown_v2(&assistant.specialty))
 }
 
 /// Форматирование информации о консультанте для отображения
@@ -96,15 +96,11 @@ pub fn format_consultant_info(assistant: &AIAssistant) -> String {
         "👤 *{}*\n\n\
         *Описание:* {}\n\
         *Специализация:* {}\n\
-        *Приветствие:* {}\n\
-        *Цена:* {} Stars/мин\n\n\
-        *О консультанте:*\n{}",
+        *Цена:* {} Stars/мин",
         escape_markdown_v2(&assistant.name),
         escape_markdown_v2(&assistant.description),
         escape_markdown_v2(&assistant.specialty),
-        escape_markdown_v2(&assistant.greeting),
         (assistant.price_per_minute * 100.0) as i32,
-        escape_markdown_v2(&assistant.prompt)
     )
 }
 
@@ -163,6 +159,7 @@ pub async fn show_user_sessions(bot: &Bot, chat_id: ChatId, state: &BotState) ->
                 assistants.first()
                     .cloned()
                     .unwrap_or_else(|| AIAssistant {
+                        id: 1,
                         name: "Анна".to_string(),
                         model: "GigaChat-2-Max".to_string(),
                         description: "Интерактивный помощник".to_string(),
@@ -198,14 +195,14 @@ pub async fn show_user_sessions(bot: &Bot, chat_id: ChatId, state: &BotState) ->
     Ok(())
 }
 
-/// Отправка сообщения от AI-персоны
 pub async fn send_ai_message(
     bot: &Bot,
     chat_id: ChatId,
     ai_name: &str,
     message: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let formatted_message = format!("*{}:* {}", escape_markdown_v2(ai_name), escape_markdown_v2(message));
+    let formatted_message = format!("*{}:* {}", escape_markdown_v2(ai_name), message);
+
     bot.send_message(chat_id, formatted_message)
         .parse_mode(ParseMode::MarkdownV2)
         .await?;
