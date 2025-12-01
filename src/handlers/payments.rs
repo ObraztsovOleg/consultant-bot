@@ -27,9 +27,8 @@ pub async fn send_stars_invoice(
 
     let prices = vec![LabeledPrice {
         label: format!("Сессия {} ({} мин)", assistant.name, booking.duration_minutes),
-        amount: 1
+        amount: total_price_stars as u32
     }];
-    // total_price_stars as u32
 
     log::info!("🔄 Sending Stars invoice for booking {} to chat {}", booking.id, chat_id);
     log::info!("Invoice payload: {}", booking.invoice_payload);
