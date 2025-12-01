@@ -143,23 +143,23 @@ impl Database {
         .await?;
 
         // Инициализация слотов времени по умолчанию
-        sqlx::query(
-            r#"
-            INSERT INTO time_slots (duration_minutes, description, sort_order) 
-            VALUES 
-                (15, 'Короткая сессия', 1),
-                (30, 'Стандартная сессия', 2),
-                (45, 'Продолжительная сессия', 3),
-                (60, 'Расширенная сессия', 4)
-            ON CONFLICT (id) DO UPDATE SET
-                duration_minutes = EXCLUDED.duration_minutes,
-                description = EXCLUDED.description,
-                sort_order = EXCLUDED.sort_order,
-                updated_at = NOW()
-            "#
-        )
-        .execute(&self.pool)
-        .await?;
+        // sqlx::query(
+        //     r#"
+        //     INSERT INTO time_slots (duration_minutes, description, sort_order) 
+        //     VALUES 
+        //         (15, 'Короткая сессия', 1),
+        //         (30, 'Стандартная сессия', 2),
+        //         (45, 'Продолжительная сессия', 3),
+        //         (60, 'Расширенная сессия', 4)
+        //     ON CONFLICT (id) DO UPDATE SET
+        //         duration_minutes = EXCLUDED.duration_minutes,
+        //         description = EXCLUDED.description,
+        //         sort_order = EXCLUDED.sort_order,
+        //         updated_at = NOW()
+        //     "#
+        // )
+        // .execute(&self.pool)
+        // .await?;
     
         // Создаем индексы
         sqlx::query(
